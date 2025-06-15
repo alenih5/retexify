@@ -1,0 +1,39 @@
+# WordPress spezifische Dateien
+wp-config.php
+wp-content/advanced-cache.php
+wp-content/backup-db/
+wp-content/backups/
+wp-content/blogs.dir/
+wp-content/cache/
+wp-content/upgrade/
+wp-content/uploads/
+wp-content/mu-plugins/
+wp-content/wp-cache-config.php
+wp-content/plugins/hello.php
+
+# Betriebssystem Dateien
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE Dateien
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# Temporäre Dateien
+*.log
+*.tmp
+*.temp
+retexify-temp/
+
+# Node.js
+node_modules/
+npm-debug.log
+yarn-debug.log
+yarn-error.log
+
+# Build Dateien
+dist/
+build/ 

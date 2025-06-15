@@ -1,0 +1,22 @@
+ID;Typ;URL;Titel;Meta Titel;Meta Beschreibung;Excerpt;Content;WPBakery CSS;ACF Felder;Custom Fields;Elementor Data;Bild ID;Alt Text;Bild Typ
+1;post;https://example.com/test;Test-Beitrag - Von KI optimiert;SEO-optimierter Test-Titel;Eine KI-optimierte Meta-Beschreibung für bessere Klickraten und SEO-Performance.;Dies ist ein von KI überarbeiteter Excerpt für bessere Lesbarkeit.;Dies ist ein Test-Inhalt der von KI bearbeitet wurde. Hier können Sie sehen wie der Import-Prozess funktioniert.;/* Post Custom CSS */ .custom-style { color: #007cba; font-weight: bold; };highlight_text: Wichtiger Hinweis für Besucher;company_info: Unser Unternehmen seit 1990
+
+product_feature: Hochwertige Materialien;Elementor Text: Willkommen auf unserer innovativen Plattform
+
+Elementor Überschrift: Revolutionäre Lösungen für Ihr Business
+
+Elementor Button: Jetzt kostenlos testen;;;
+2;page;https://example.com/test-seite;Test-Seite - Überarbeitet;Professioneller Seitentitel;Meta-Beschreibung für eine wichtige Seite mit Call-to-Action.;Kurzbeschreibung der Seite;Hier steht der überarbeitete Seiteninhalt nach KI-Optimierung.;/* Post Custom CSS */ .page-header { background: linear-gradient(45deg, #007cba, #005a87); }
+
+/* Shortcodes Custom CSS */ .vc_column { padding: 20px; };company_slogan: Qualität und Innovation seit 1990
+
+team_motto: Gemeinsam zum Erfolg;contact_email: info@example.com
+
+phone_number: +49 123 456789;Elementor Text: Kontaktieren Sie unser erfahrenes Team
+
+Elementor Überschrift: Ihre Experten für digitale Transformation
+
+Elementor Bildtext: Unser Team bei der Arbeit;;;
+1;image_alt;;;;;;;;;;;;;;456;Professionelles Produktfoto zeigt hochwertiges Design und moderne Ästhetik;Content Image
+2;image_alt;;;;;;;;;;;;;;789;Hero-Bild der Startseite mit Firmenlogo und inspirierendem Slogan;Featured Image
+2;image_alt;;;;;;;;;;;;;;101;Team-Foto zeigt engagierte Mitarbeiter in modernem Büroumfeld;Content Image
