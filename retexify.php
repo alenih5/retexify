@@ -1,8 +1,8 @@
 <?php
 /**
- * Plugin Name: ReTexify Complete
+ * Plugin Name: ReTexify
  * Description: Exportiert ALLES: Yoast Focus Keyphrase, alle Bilder, WPBakery Elemente - Vollständige Version
- * Version: 2.0.1-complete
+ * Version: 2.1.0
  * Author: Imponi
  * Text Domain: retexify
  */
@@ -11,7 +11,7 @@ if (!defined('ABSPATH')) {
     exit;
 }
 
-class ReTexify_Complete {
+class ReTexify {
     
     public function __construct() {
         add_action('admin_menu', array($this, 'add_admin_menu'));
@@ -38,53 +38,67 @@ class ReTexify_Complete {
     
     public function add_admin_menu() {
         add_management_page(
-            'ReTexify Complete',
-            'ReTexify Complete', 
+            'ReTexify',
+            'ReTexify', 
             'manage_options',
-            'retexify-complete',
+            'retexify',
             array($this, 'admin_page')
         );
     }
     
     public function enqueue_assets($hook) {
-        if ('tools_page_retexify-complete' !== $hook) {
+        if ('tools_page_retexify' !== $hook) {
             return;
         }
-        
-        // CSS hinzufügen (inline da externe Datei fehlen könnte)
         wp_add_inline_style('wp-admin', $this->get_admin_css());
-        
-        // JavaScript hinzufügen (inline)
         wp_enqueue_script('jquery');
         wp_add_inline_script('jquery', $this->get_admin_js());
-        
-        // AJAX-Daten
         wp_localize_script('jquery', 'retexify_ajax', array(
             'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('complete_nonce')
+            'nonce' => wp_create_nonce('retexify_nonce')
         ));
     }
     
     public function admin_page() {
+        global $wpdb;
+        // WPBakery-Check: robust
+        if (!function_exists('is_plugin_active')) {
+            include_once(ABSPATH . 'wp-admin/includes/plugin.php');
+        }
+        $wpbakery_active = class_exists('Vc_Manager') || is_plugin_active('js_composer/js_composer.php');
+        // Post-Typen zählen
+        $post_types = get_post_types(array('public' => true), 'objects');
+        $post_type_counts = array();
+        foreach ($post_types as $post_type) {
+            $post_type_counts[$post_type->name] = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = %s AND post_status != 'auto-draft'",
+                $post_type->name
+            ));
+        }
+        // Content-Typen zählen
+        $content_counts = array(
+            'title' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_status = 'publish' AND post_title != ''"),
+            'content' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_status = 'publish' AND LENGTH(post_content) > 0"),
+            'meta_title' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_title' AND meta_value != ''"),
+            'meta_description' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_metadesc' AND meta_value != ''"),
+            'focus_keyphrase' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_focuskw' AND meta_value != ''"),
+            'all_images' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image%'"),
+            'wpbakery_elements' => $wpbakery_active ? $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_content LIKE '%[vc_%' AND post_status = 'publish'") : 0
+        );
         ?>
         <div class="retexify-admin-wrap">
             <h1 class="retexify-title">
                 <span class="dashicons dashicons-text"></span>
-                ReTexify Complete - Vollständiger Export/Import
+                ReTexify - Vollständiger Export/Import
             </h1>
-            
             <div class="retexify-description">
-                <p><strong>Exportiert ALLES:</strong> Yoast Focus Keyphrases, alle 3000+ Bilder mit Alt-Texten, WPBakery Elemente einzeln!</p>
+                <p><strong>Exportiert ALLES:</strong> Yoast Focus Keyphrases, alle Bilder mit Alt-Texten, WPBakery Elemente einzeln!</p>
             </div>
-            
             <!-- System-Status -->
             <div class="retexify-stats-container">
                 <h2>📊 System-Status</h2>
-                <div id="retexify-system-status">
-                    <?php $this->show_system_status(); ?>
-                </div>
+                <div id="retexify-system-status"><?php $this->show_system_status(); ?></div>
             </div>
-            
             <div class="retexify-main-container">
                 <!-- Export Card -->
                 <div class="retexify-card retexify-export-card">
@@ -92,24 +106,18 @@ class ReTexify_Complete {
                         <h2><span class="dashicons dashicons-download"></span> Vollständiger Export</h2>
                     </div>
                     <div class="retexify-card-content">
-                        
                         <!-- Post-Typen -->
                         <div class="retexify-selection-section">
                             <h4><span class="dashicons dashicons-admin-post"></span> Post-Typen</h4>
                             <div class="retexify-checkbox-grid">
-                                <?php
-                                $post_types = get_post_types(array('public' => true), 'objects');
-                                foreach ($post_types as $post_type) {
-                                    $checked = in_array($post_type->name, array('post', 'page')) ? 'checked' : '';
-                                    echo '<label class="retexify-checkbox-item">';
-                                    echo '<input type="checkbox" name="post_types[]" value="' . esc_attr($post_type->name) . '" ' . $checked . '>';
-                                    echo '<span>' . esc_html($post_type->label) . '</span>';
-                                    echo '</label>';
-                                }
-                                ?>
+                                <?php foreach ($post_types as $post_type): ?>
+                                    <label class="retexify-checkbox-item">
+                                        <input type="checkbox" name="post_types[]" value="<?php echo esc_attr($post_type->name); ?>">
+                                        <span><?php echo esc_html($post_type->label) . ' (' . intval($post_type_counts[$post_type->name]) . ')'; ?></span>
+                                    </label>
+                                <?php endforeach; ?>
                             </div>
                         </div>
-                        
                         <!-- Post-Status -->
                         <div class="retexify-selection-section">
                             <h4><span class="dashicons dashicons-visibility"></span> Post-Status</h4>
@@ -128,42 +136,40 @@ class ReTexify_Complete {
                                 </label>
                             </div>
                         </div>
-                        
                         <!-- Content-Typen -->
                         <div class="retexify-selection-section">
                             <h4><span class="dashicons dashicons-edit"></span> Was exportieren?</h4>
                             <div class="retexify-checkbox-grid">
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="title" checked>
-                                    <span>Titel</span>
+                                    <span>Titel (<?php echo intval($content_counts['title']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="content">
-                                    <span>Inhalt</span>
+                                    <span>Inhalt (<?php echo intval($content_counts['content']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="meta_title" checked>
-                                    <span>Meta-Titel</span>
+                                    <span>Meta-Titel (<?php echo intval($content_counts['meta_title']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="meta_description" checked>
-                                    <span>Meta-Beschreibung</span>
+                                    <span>Meta-Beschreibung (<?php echo intval($content_counts['meta_description']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="focus_keyphrase" checked>
-                                    <span>🎯 Focus Keyphrase</span>
+                                    <span>🎯 Focus Keyphrase (<?php echo intval($content_counts['focus_keyphrase']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
                                     <input type="checkbox" name="content_types[]" value="all_images" checked>
-                                    <span>🖼️ Alle Bilder + Alt-Texte</span>
+                                    <span>🖼️ Alle Bilder + Alt-Texte (<?php echo intval($content_counts['all_images']); ?>)</span>
                                 </label>
                                 <label class="retexify-checkbox-item">
-                                    <input type="checkbox" name="content_types[]" value="wpbakery_elements">
-                                    <span>🏗️ WPBakery Elemente</span>
+                                    <input type="checkbox" name="content_types[]" value="wpbakery_elements" <?php if(!$wpbakery_active) echo 'disabled'; ?>>
+                                    <span>🏗️ WPBakery Elemente (<?php echo intval($content_counts['wpbakery_elements']); ?>)<?php if(!$wpbakery_active) echo ' <small style=\'color:#888\'>(Plugin nicht aktiv)</small>'; ?></span>
                                 </label>
                             </div>
                         </div>
-                        
                         <!-- Export Info -->
                         <div class="retexify-export-info">
                             <h4>✨ Das wird exportiert:</h4>
@@ -175,7 +181,6 @@ class ReTexify_Complete {
                                 <li><span class="dashicons dashicons-yes-alt"></span> Vollständige Post-Inhalte</li>
                             </ul>
                         </div>
-                        
                         <!-- Vorschau -->
                         <div class="retexify-preview-section">
                             <button type="button" id="retexify-preview-btn" class="button">
@@ -183,25 +188,21 @@ class ReTexify_Complete {
                             </button>
                             <div id="retexify-preview-result" class="retexify-preview-result"></div>
                         </div>
-                        
                         <!-- Export-Button -->
                         <div class="retexify-action-area">
                             <button type="button" id="retexify-export-btn" class="button button-primary button-hero">
                                 <span class="dashicons dashicons-download"></span> Vollständigen Export starten
                             </button>
                         </div>
-                        
                         <div id="retexify-export-result"></div>
                     </div>
                 </div>
-                
                 <!-- Import Card -->
                 <div class="retexify-card retexify-import-card">
                     <div class="retexify-card-header">
                         <h2><span class="dashicons dashicons-upload"></span> Vollständiger Import</h2>
                     </div>
                     <div class="retexify-card-content">
-                        
                         <!-- Datei-Upload -->
                         <div class="retexify-file-upload">
                             <input type="file" id="retexify-import-file" accept=".csv" style="display: none;">
@@ -210,7 +211,6 @@ class ReTexify_Complete {
                             </button>
                             <span id="retexify-file-name" class="retexify-file-name"></span>
                         </div>
-                        
                         <!-- Import Info -->
                         <div class="retexify-import-info">
                             <h4>⚡ Was wird importiert:</h4>
@@ -221,19 +221,16 @@ class ReTexify_Complete {
                                 <li><span class="dashicons dashicons-warning"></span> Backup wird empfohlen vor Import</li>
                             </ul>
                         </div>
-                        
                         <!-- Import-Button -->
                         <div class="retexify-action-area">
                             <button type="button" id="retexify-import-btn" class="button button-primary button-hero" disabled>
                                 <span class="dashicons dashicons-upload"></span> Vollständigen Import starten
                             </button>
                         </div>
-                        
                         <div id="retexify-import-result"></div>
                     </div>
                 </div>
             </div>
-            
             <!-- Test-Bereich -->
             <div class="retexify-stats-container">
                 <h2>🧪 Tests & Diagnose</h2>
@@ -322,7 +319,7 @@ class ReTexify_Complete {
     
     // AJAX-Handler
     public function test_all_fields() {
-        if (!wp_verify_nonce($_POST['nonce'], 'complete_nonce') || !current_user_can('manage_options')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'retexify_nonce') || !current_user_can('manage_options')) {
             wp_send_json_error('Sicherheitsfehler');
         }
         
@@ -375,7 +372,7 @@ class ReTexify_Complete {
     }
     
     public function analyze_wpbakery_content() {
-        if (!wp_verify_nonce($_POST['nonce'], 'complete_nonce') || !current_user_can('manage_options')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'retexify_nonce') || !current_user_can('manage_options')) {
             wp_send_json_error('Sicherheitsfehler');
         }
         
@@ -429,7 +426,7 @@ class ReTexify_Complete {
     }
     
     public function preview_export() {
-        if (!wp_verify_nonce($_POST['nonce'], 'complete_nonce') || !current_user_can('manage_options')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'retexify_nonce') || !current_user_can('manage_options')) {
             wp_send_json_error('Sicherheitsfehler');
         }
         
@@ -490,7 +487,7 @@ class ReTexify_Complete {
     }
     
     public function handle_export() {
-        if (!wp_verify_nonce($_POST['nonce'], 'complete_nonce') || !current_user_can('manage_options')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'retexify_nonce') || !current_user_can('manage_options')) {
             wp_send_json_error('Sicherheitsfehler');
         }
         
@@ -523,7 +520,7 @@ class ReTexify_Complete {
             }
             fclose($file);
             
-            $download_url = admin_url('tools.php?page=retexify-complete&action=download&file=' . $filename . '&nonce=' . wp_create_nonce('download_file'));
+            $download_url = admin_url('tools.php?page=retexify&action=download&file=' . $filename . '&nonce=' . wp_create_nonce('download_file'));
             
             wp_send_json_success(array(
                 'message' => 'Vollständiger Export erfolgreich!',
@@ -541,7 +538,7 @@ class ReTexify_Complete {
     }
     
     public function handle_import() {
-        if (!wp_verify_nonce($_POST['nonce'], 'complete_nonce') || !current_user_can('manage_options')) {
+        if (!wp_verify_nonce($_POST['nonce'], 'retexify_nonce') || !current_user_can('manage_options')) {
             wp_send_json_error('Sicherheitsfehler');
         }
         
@@ -1175,5 +1172,5 @@ class ReTexify_Complete {
 }
 
 // Plugin initialisieren
-new ReTexify_Complete();
+new ReTexify();
 ?>
