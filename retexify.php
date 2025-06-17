@@ -61,11 +61,28 @@ class ReTexify {
     
     public function admin_page() {
         global $wpdb;
-        // WPBakery-Check: robust
+        // WPBakery-Check: robust für verschiedene Installationen
         if (!function_exists('is_plugin_active')) {
             include_once(ABSPATH . 'wp-admin/includes/plugin.php');
         }
-        $wpbakery_active = class_exists('Vc_Manager') || is_plugin_active('js_composer/js_composer.php');
+        $wpbakery_active = false;
+        // Prüfe auf die Klasse (Theme-Bundle oder regulär)
+        if (class_exists('Vc_Manager')) {
+            $wpbakery_active = true;
+        } else {
+            // Prüfe verschiedene mögliche Plugin-Pfade
+            $possible_plugins = [
+                'js_composer/js_composer.php',
+                'wpbakery-page-builder/js_composer.php',
+                'wpbakery/js_composer.php',
+            ];
+            foreach ($possible_plugins as $plugin_file) {
+                if (is_plugin_active($plugin_file)) {
+                    $wpbakery_active = true;
+                    break;
+                }
+            }
+        }
         // Post-Typen zählen
         $post_types = get_post_types(array('public' => true), 'objects');
         $post_type_counts = array();
@@ -83,7 +100,7 @@ class ReTexify {
             'meta_description' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_metadesc' AND meta_value != ''"),
             'focus_keyphrase' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = '_yoast_wpseo_focuskw' AND meta_value != ''"),
             'all_images' => $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image%'"),
-            'wpbakery_elements' => $wpbakery_active ? $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_content LIKE '%[vc_%' AND post_status = 'publish'") : 0
+            'wpbakery_elements' => $wpbakery_active ? $wpdb->get_var("SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key = '_wpb_vc_js_status' AND meta_value = 'true'") : 0
         );
         ?>
         <div class="retexify-admin-wrap">
@@ -259,11 +276,9 @@ class ReTexify {
         }
         
         // WPBakery Status
-        $wpbakery_active = is_plugin_active('js_composer/js_composer.php');
-        $wpbakery_posts = 0;
-        if ($wpbakery_active) {
-            $wpbakery_posts = $wpdb->get_var("SELECT COUNT(DISTINCT post_id) FROM {$wpdb->postmeta} WHERE meta_key LIKE '%wpb%' OR meta_key LIKE '%vc_%'");
-        }
+        $wpbakery_active = is_plugin_active('js_composer/js_composer.php') || class_exists('Vc_Manager');
+        // NEU: Zähle alle Beiträge/Seiten mit WPBakery-Shortcodes im Content
+        $wpbakery_posts = $wpbakery_active ? $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_content LIKE '%[vc_%' AND post_type IN ('post','page') AND post_status = 'publish'") : 0;
         
         // Bilder Status
         $total_images = $wpdb->get_var("SELECT COUNT(*) FROM {$wpdb->posts} WHERE post_type = 'attachment' AND post_mime_type LIKE 'image%'");
@@ -675,127 +690,147 @@ class ReTexify {
     
     private function extract_wpbakery_elements($selections) {
         global $wpdb;
-        
         $elements = array();
-        
-        // WPBakery Posts finden
-        $wpbakery_posts = $wpdb->get_results("
-            SELECT p.ID, p.post_title, p.post_content
-            FROM {$wpdb->posts} p
-            WHERE p.post_content LIKE '%[vc_%'
-            AND p.post_type IN ('" . implode("','", $selections['post_types']) . "')
-            AND p.post_status IN ('" . implode("','", $selections['post_status']) . "')
-        ");
-        
-        foreach ($wpbakery_posts as $post) {
-            // Shortcodes extrahieren
+
+        // Hole ALLE relevanten Posts/Seiten, nicht nur die mit [vc_ im Content
+        $posts = get_posts(array(
+            'post_type' => $selections['post_types'],
+            'post_status' => $selections['post_status'],
+            'numberposts' => -1
+        ));
+
+        foreach ($posts as $post) {
             $shortcodes = $this->extract_shortcodes_from_content($post->post_content);
-            
             foreach ($shortcodes as $shortcode) {
                 $elements[] = array(
                     'post_id' => $post->ID,
                     'post_title' => $post->post_title,
-                    'element_type' => $shortcode['type'],
-                    'element_content' => $shortcode['content']
+                    'type' => $shortcode['type'],
+                    'attribute' => $shortcode['attribute'],
+                    'value' => $shortcode['value']
                 );
             }
         }
-        
         return $elements;
     }
     
     private function extract_shortcodes_from_content($content) {
         $shortcodes = array();
-        
-        // Text-Elemente extrahieren
-        preg_match_all('/\[vc_column_text[^\]]*\](.*?)\[\/vc_column_text\]/s', $content, $matches, PREG_SET_ORDER);
+
+        // vc_column_text (Content) – robust für Zeilenumbrüche und Whitespaces
+        preg_match_all('/\[vc_column_text[^\]]*\](.*?)\[\/vc_column_text\]/is', $content, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
             $clean_content = wp_strip_all_tags($match[1]);
             if (!empty(trim($clean_content))) {
                 $shortcodes[] = array(
-                    'type' => 'column_text',
-                    'content' => trim($clean_content)
+                    'type' => 'vc_column_text',
+                    'attribute' => 'content',
+                    'value' => trim($clean_content)
                 );
             }
         }
-        
-        // Überschriften extrahieren
-        preg_match_all('/\[vc_custom_heading[^\]]*text="([^"]*)"[^\]]*\]/s', $content, $matches, PREG_SET_ORDER);
+
+        // vc_custom_heading (text-Attribut, robust für Zeilenumbrüche und Whitespaces)
+        preg_match_all('/\[vc_custom_heading([^\]]*)\]/is', $content, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
-            if (!empty(trim($match[1]))) {
-                $shortcodes[] = array(
-                    'type' => 'custom_heading',
-                    'content' => trim($match[1])
-                );
+            // text-Attribut extrahieren
+            if (preg_match('/text="([^"]*)"/is', $match[1], $textMatch)) {
+                if (!empty(trim($textMatch[1]))) {
+                    $shortcodes[] = array(
+                        'type' => 'vc_custom_heading',
+                        'attribute' => 'text',
+                        'value' => trim($textMatch[1])
+                    );
+                }
             }
         }
-        
+
         return $shortcodes;
     }
     
     private function prepare_complete_csv_data($all_data) {
         $csv_data = array();
-        
-        // Header
+
+        // Header: Für alle Felder jeweils Original und Neu
         $csv_data[] = array(
             'ID',
             'Typ',
             'URL',
             'Titel',
-            'Meta Titel',
-            'Meta Beschreibung',
-            'Focus Keyphrase',
-            'Content',
+            'Meta Titel (Original)',
+            'Meta Titel (Neu)',
+            'Meta Beschreibung (Original)',
+            'Meta Beschreibung (Neu)',
+            'Focus Keyphrase (Original)',
+            'Focus Keyphrase (Neu)',
+            'Content (Original)',
+            'Content (Neu)',
             'WPBakery Element Type',
-            'WPBakery Content',
+            'WPBakery Attribute',
+            'WPBakery Text (Original)',
+            'WPBakery Text (Neu)',
             'Image ID',
-            'Alt Text',
+            'Alt Text (Original)',
+            'Alt Text (Neu)',
             'Image Type'
         );
-        
-        // Posts hinzufügen
+
+        // Für jeden Post: Wenn WPBakery-Elemente vorhanden, für jedes Element eine Zeile mit Content + WPBakery Text, sonst nur Content
         foreach ($all_data['posts'] as $post) {
-            $csv_data[] = array(
-                $post['id'],
-                $post['type'],
-                $post['url'],
-                $post['title'],
-                $post['meta_title'],
-                $post['meta_description'],
-                $post['focus_keyphrase'],
-                $post['content'],
-                '', '', '', '', ''
-            );
+            // Finde alle WPBakery-Elemente zu diesem Post
+            $wpbakery_elements = array();
+            foreach ($all_data['wpbakery_elements'] as $element) {
+                if ($element['post_id'] == $post['id']) {
+                    $wpbakery_elements[] = $element;
+                }
+            }
+            if (count($wpbakery_elements) > 0) {
+                foreach ($wpbakery_elements as $element) {
+                    $csv_data[] = array(
+                        $post['id'],
+                        $post['type'],
+                        $post['url'],
+                        $post['title'],
+                        $post['meta_title'], '',
+                        $post['meta_description'], '',
+                        $post['focus_keyphrase'], '',
+                        $post['content'], '',
+                        $element['type'],
+                        $element['attribute'],
+                        $element['value'],
+                        '', '', '', '', ''
+                    );
+                }
+            } else {
+                // Kein WPBakery-Text, nur Content
+                $csv_data[] = array(
+                    $post['id'],
+                    $post['type'],
+                    $post['url'],
+                    $post['title'],
+                    $post['meta_title'], '',
+                    $post['meta_description'], '',
+                    $post['focus_keyphrase'], '',
+                    $post['content'], '',
+                    '', '', '', '', '', '', '', ''
+                );
+            }
         }
-        
-        // Bilder hinzufügen
+
+        // Bilder hinzufügen (wie gehabt)
         foreach ($all_data['images'] as $image) {
             $csv_data[] = array(
                 '',
                 'image',
                 $image['url'],
                 $image['title'],
-                '', '', '', '', '', '',
+                '', '', '', '', '', '', '', '', '', '', '', '',
                 $image['id'],
-                $image['alt_text'],
+                $image['alt_text'], '' ,
                 'media_library'
             );
         }
-        
-        // WPBakery Elemente hinzufügen
-        foreach ($all_data['wpbakery_elements'] as $element) {
-            $csv_data[] = array(
-                $element['post_id'],
-                'wpbakery_element',
-                '',
-                $element['post_title'],
-                '', '', '', '',
-                $element['element_type'],
-                $element['element_content'],
-                '', '', ''
-            );
-        }
-        
+
         return $csv_data;
     }
     
